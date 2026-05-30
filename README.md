@@ -375,7 +375,7 @@ CodePipeline will monitor this repository for changes and use it as the starting
 
 # Step 2 - Create CodePipeline
 
-Create a new AWS CodePipeline that will orchestrate our planned CI/CD workflow:
+Create a new AWS CodePipeline that will orchestrate the CI/CD workflow:
 
 ```text
 GitHub
@@ -386,7 +386,7 @@ CodeBuild
 ↓
 Docker Build
 ↓
-Docker Registry
+Docker Registry (DockerHub / ECR)
 ↓
 Deployment
 ```
@@ -497,9 +497,9 @@ Install a New App
 
 Then:
 
-- select your GitHub account
-- choose **Only Select Repositories**
-- select the repository:
+* select your GitHub account
+* choose **Only Select Repositories**
+* select the repository:
 
 ```text
 aws-codepipeline
@@ -540,15 +540,8 @@ Default Branch: main
 
 This tells CodePipeline:
 
-- which GitHub repository to monitor
-- which branch should trigger pipeline executions
-
-In this example:
-
-```text
-Repository: vikkapoor25/aws-codepipeline
-Branch: main
-```
+* which GitHub repository to monitor
+* which branch should trigger pipeline executions
 
 ---
 
@@ -576,17 +569,15 @@ Pipeline starts automatically
 
 This repository now acts as the source stage for the remainder of the pipeline.
 
-**NOTE:** Even though we want to skip all the build, test, deploy stages for now, one of these has to be populated. I added `echo "aws-codepipeline" in the build stage so i can skip the other stages.
-
 ---
 
-# Step 3.5 - Create Pipeline
+# Step 4 - Complete Initial Pipeline Setup
 
 We will configure the actual build process later using a `buildspec.yml` file.
 
 For now, we want to skip the build, test and deploy stages. However, CodePipeline requires at least one stage to contain an action.
 
-To satisfy this requirement, I added:
+To satisfy this requirement, add:
 
 ```bash
 echo "aws-codepipeline"
@@ -594,15 +585,306 @@ echo "aws-codepipeline"
 
 to the build stage.
 
-This allows the pipeline to execute successfully while we focus on configuring the GitHub source connection. The placeholder build action will be replaced later when we create the CodeBuild project and `buildspec.yml`.
+This allows the pipeline to execute successfully while we focus on configuring the GitHub source connection. The placeholder build action will be replaced later when we configure AWS CodeBuild.
 
 ---
 
-# Step 4 - Create CodeBuild Project
+# Step 5a - Verify Source Stage Permissions
 
-Create a build project.
+After creating the pipeline, verify that the source stage completes successfully.
+
+## Common Error: GitHub Connection Permissions
+
+Error:
+
+```text
+Unable to use Connection...
+The provided role does not have sufficient permissions.
+```
+
+This means the CodePipeline service role does not have permission to use the GitHub connection created in the source stage.
+
+---
+
+## Fix
+
+Navigate to:
+
+```text
+IAM
+↓
+Roles
+↓
+AWSCodePipelineServiceRole-<region>-<pipeline-name>
+↓
+Add Permissions
+↓
+Create Inline Policy
+↓
+JSON
+```
+
+Add the following policy:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "codeconnections:UseConnection"
+  ],
+  "Resource": "GitHub Connection ARN"
+}
+```
+
+Give the policy a meaningful name, for example:
+
+```text
+aws-codepipeline-use-github-connection
+```
+
+Then create the policy.
+
+This policy grants CodePipeline permission to use the GitHub connection configured in the source stage.
+
+**NOTE:** The GitHub Connection ARN can be found:
+
+* in AWS CodeConnections, or
+* directly in the source stage error message.
 
 Example:
+
+```text
+arn:aws:codeconnections:<region>:<account-id>:connection/<connection-id>
+```
+
+---
+
+## Retry Pipeline
+
+After creating the inline policy:
+
+```text
+CodePipeline
+↓
+Release Change
+```
+
+or:
+
+```text
+Retry Stage
+```
+
+The source stage should now complete successfully and allow the pipeline to continue.
+
+---
+
+# Step 5b - Verify Build Stage Permissions
+
+After creating the pipeline, verify that the build stage completes successfully.
+
+## Common Error: CloudWatch Logging Permissions
+
+Error:
+
+```text
+Action failed with status: FAILED.
+
+Service role does not have permissions to create Amazon CloudWatch log streams.
+
+Add:
+logs:CreateLogGroup
+logs:CreateLogStream
+logs:PutLogEvents
+```
+
+This means the CodePipeline service role does not have permission to create and write CloudWatch logs.
+
+---
+
+## Fix
+
+Navigate to:
+
+```text
+IAM
+↓
+Roles
+↓
+AWSCodePipelineServiceRole-<region>-<pipeline-name>
+↓
+Add Permissions
+↓
+Create Inline Policy
+↓
+JSON
+```
+
+Add the following policy:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "logs:CreateLogGroup",
+    "logs:CreateLogStream",
+    "logs:PutLogEvents"
+  ],
+  "Resource": "*"
+}
+```
+
+Give the policy a meaningful name, for example:
+
+```text
+aws-codepipeline-cloudwatch-logs
+```
+
+Then create the policy.
+
+This policy grants CodePipeline permission to create log groups, create log streams and write log events to CloudWatch.
+
+**NOTE:** CodePipeline writes execution logs to CloudWatch.
+
+The default log group is typically:
+
+```text
+/aws/codepipeline/<pipeline-name>
+```
+
+Without these permissions, the pipeline cannot write execution logs and the build stage may fail.
+
+---
+
+## Retry Pipeline
+
+After creating the inline policy:
+
+```text
+CodePipeline
+↓
+Release Change
+```
+
+or:
+
+```text
+Retry Stage
+```
+
+The build stage should now complete successfully and allow the pipeline to continue.
+
+---
+
+# Step 6 - Configure Build Action
+
+The build stage defines what should happen after code is retrieved from GitHub.
+
+For this project, we will use:
+
+```text
+AWS CodeBuild
+```
+
+to execute the commands defined in `buildspec.yml`.
+
+---
+
+## Edit Build Stage
+
+Navigate to:
+
+```text
+CodePipeline
+↓
+Edit Pipeline
+↓
+Edit Build Stage
+↓
+Edit Action
+```
+
+Configure the action:
+
+```text
+Action Name:
+Docker-Build-and-Push
+
+Action Provider:
+AWS CodeBuild
+```
+
+Selecting:
+
+```text
+AWS CodeBuild
+```
+
+tells CodePipeline that the build stage should be executed by a CodeBuild project.
+
+---
+
+## Select or Create CodeBuild Project
+
+After selecting:
+
+```text
+AWS CodeBuild
+```
+
+AWS will prompt you to select an existing CodeBuild project or create a new one.
+
+For this project, select:
+
+```text
+Create Project
+```
+
+and complete Step 7 before continuing with Step 6.
+
+---
+
+## Configure Output Artifact
+
+Specify:
+
+```text
+BuildArtifact
+```
+
+as the output artifact.
+
+This allows build output to be passed to later pipeline stages if required.
+
+---
+
+## Save Changes
+
+```text
+Done
+↓
+Save Action
+```
+
+The build stage is now configured to use AWS CodeBuild.
+
+---
+
+# Step 7 - Create CodeBuild Project
+
+When configuring the build action in Step 6, select:
+
+```text
+Create Project
+```
+
+This creates the CodeBuild project that will execute the commands defined in `buildspec.yml`.
+
+---
+
+## Configure Project
+
+Example project name:
 
 ```text
 code-build-aws-docker
@@ -611,19 +893,76 @@ code-build-aws-docker
 Recommended settings:
 
 ```text
-Environment:
+Operating System:
 Ubuntu
+```
 
-Compute:
-Small
+Specify:
 
+```text
 Buildspec:
-Use buildspec.yml
+Use buildspec file
+```
+
+and enter:
+
+```text
+buildspec.yml
+```
+
+to match the file stored in the GitHub repository.
+
+**NOTE:** You can create the CodeBuild project separately before editing the pipeline, but you will need to configure the source repository manually. Creating the project from within the build action is usually simpler.
+
+---
+
+## Save Project
+
+```text
+Save Project
+↓
+Return to Build Action
+↓
+Save Pipeline
+```
+
+The build stage is now linked to the CodeBuild project.
+
+---
+
+## What Happens Now?
+
+When the pipeline reaches the build stage:
+
+```text
+GitHub Push
+↓
+CodePipeline Starts
+↓
+Build Stage Starts
+↓
+CodeBuild Starts
+↓
+Reads buildspec.yml
+↓
+Executes Commands
 ```
 
 ---
 
-# Step 5 - Create Basic buildspec.yml
+# Step 8 - Create Basic buildspec.yml
+
+We will create a simple `buildspec.yml` to verify that:
+
+```text
+GitHub
+↓
+CodePipeline
+↓
+CodeBuild
+```
+
+is working correctly before introducing Docker.
 
 Start with a simple test.
 
@@ -654,7 +993,7 @@ is working before introducing Docker.
 
 ---
 
-# Step 6 - Run Pipeline
+# Step 9 - Run Pipeline
 
 Run:
 
@@ -666,13 +1005,13 @@ or push code to GitHub.
 
 Confirm:
 
-- pipeline succeeds
-- build succeeds
-- logs appear in CodeBuild
+* pipeline succeeds
+* build succeeds
+* logs appear in CodeBuild
 
 ---
 
-# Step 7 - Create Docker Credentials Secret
+# Step 10 - Create Docker Credentials Secret
 
 Navigate to:
 
@@ -707,7 +1046,7 @@ pipeline-docker-auth
 
 ---
 
-# Step 8 - Give CodeBuild Access To Secret
+# Step 11 - Give CodeBuild Access To Secret
 
 Find:
 
@@ -727,15 +1066,13 @@ Add permission:
   "Action": [
     "secretsmanager:GetSecretValue"
   ],
-  "Resource": [
-    "secret ARN"
-  ]
+  "Resource": "Secret ARN"
 }
 ```
 
 ---
 
-# Step 9 - Login To DockerHub
+# Step 12 - Login To DockerHub
 
 Update buildspec:
 
@@ -755,7 +1092,7 @@ phases:
 
 ---
 
-# Step 10 - Build Docker Image
+# Step 13 - Build Docker Image
 
 Add:
 
@@ -775,7 +1112,7 @@ Docker Image
 
 ---
 
-# Step 11 - Push Docker Image
+# Step 14 - Push Docker Image
 
 Add:
 
@@ -788,7 +1125,7 @@ post_build:
 
 ---
 
-# Step 12 - Run Pipeline Again
+# Step 15 - Run Pipeline Again
 
 Pipeline now performs:
 
