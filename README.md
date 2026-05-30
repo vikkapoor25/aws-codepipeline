@@ -1122,6 +1122,16 @@ Confirm:
 
 # Step 11 - Create Docker Credentials Secret
 
+CodeBuild will need DockerHub credentials in order to authenticate and push Docker images.
+
+Rather than hardcoding credentials into:
+
+```text
+buildspec.yml
+```
+
+we will store them securely in AWS Secrets Manager.
+
 Navigate to:
 
 ```text
@@ -1140,11 +1150,23 @@ Other Type of Secret
 
 ## Create Secret Values
 
-Example:
+Secrets Manager stores data as key/value pairs.
+
+For this example, create the following key/value pairs:
 
 ```text
-SECRET_USERNAME = myDockerUser
-SECRET_PASSWORD = myDockerPassword
+username = <your DockerHub username>
+password = <your DockerHub password>
+```
+
+Here:
+
+```text
+Key: username
+Value: DockerHub username
+
+Key: password
+Value: DockerHub password
 ```
 
 Example secret name:
@@ -1155,9 +1177,59 @@ pipeline-docker-auth
 
 ---
 
+## Why Are We Doing This?
+
+Later, CodeBuild will retrieve these values from Secrets Manager and expose them as environment variables.
+
+Example:
+
+```yaml
+env:
+  secrets-manager:
+    SECRET_USERNAME: "pipeline/docker/auth:username"
+    SECRET_PASSWORD: "pipeline/docker/auth:password"
+```
+
+This allows CodeBuild to authenticate with DockerHub without storing sensitive credentials directly in source control.
+
+```text
+Secrets Manager
+↓
+CodeBuild
+↓
+Docker Login
+↓
+Docker Push
+```
+
+---
+
 # Step 12 - Give CodeBuild Access To Secret
 
-Find:
+After creating the Docker credentials secret, CodeBuild must be granted permission to retrieve it.
+
+## Why Is This Required?
+
+CodeBuild will later attempt to retrieve:
+
+```text
+username
+password
+```
+
+from:
+
+```text
+pipeline-docker-auth
+```
+
+Without permission, the build will fail when attempting to access Secrets Manager.
+
+---
+
+## Grant Permission
+
+Navigate to:
 
 ```text
 CodeBuild
@@ -1165,9 +1237,15 @@ CodeBuild
 Project
 ↓
 Service Role
+↓
+Add Permissions
+↓
+Create Inline Policy
+↓
+JSON
 ```
 
-Add permission:
+Add the following policy:
 
 ```json
 {
@@ -1179,36 +1257,37 @@ Add permission:
 }
 ```
 
----
+Give the policy a meaningful name, for example:
 
-# Step 13 - Login To DockerHub
+```text
+aws-codebuild-read-docker-secret
+```
 
-Update buildspec:
+Then create the policy.
 
-```yaml
-version: 0.2
+This policy grants CodeBuild permission to retrieve the DockerHub credentials stored in Secrets Manager.
 
-env:
-  secrets-manager:
-    SECRET_USERNAME: pipeline-docker-auth:SECRET_USERNAME
-    SECRET_PASSWORD: pipeline-docker-auth:SECRET_PASSWORD
+**NOTE:** The Secret ARN can be found in:
 
-phases:
-  pre_build:
-    commands:
-      - echo "$SECRET_PASSWORD" | docker login -u "$SECRET_USERNAME" --password-stdin
+```text
+Secrets Manager
+↓
+pipeline-docker-auth
+↓
+Secret ARN
 ```
 
 ---
 
 # Step 14 - Build Docker Image
 
-Add:
+Extend the `buildspec.yml` by adding a build phase:
 
 ```yaml
 build:
   commands:
-    - docker build -t my-docker-image .
+    - echo "Building Docker image..."
+    - docker build -t vikkapoor25/arsenal-db:latest .
 ```
 
 This creates:
@@ -1219,24 +1298,56 @@ Dockerfile
 Docker Image
 ```
 
+The image is tagged:
+
+```text
+vikkapoor25/arsenal-db:latest
+```
+
 ---
 
 # Step 15 - Push Docker Image
 
-Add:
+Extend the `buildspec.yml` by adding a post-build phase:
 
 ```yaml
 post_build:
   commands:
-    - docker tag my-docker-image "$SECRET_USERNAME/my-docker-image:latest"
-    - docker push "$SECRET_USERNAME/my-docker-image:latest"
+    - echo "Pushing Docker Image..."
+    - docker push vikkapoor25/arsenal-db:latest
+```
+
+This pushes the Docker image to DockerHub.
+
+```text
+Docker Image
+↓
+DockerHub
 ```
 
 ---
 
 # Step 16 - Run Pipeline Again
 
-Pipeline now performs:
+Commit and push the updated `buildspec.yml`.
+
+Then either:
+
+```text
+CodePipeline
+↓
+Release Change
+```
+
+or:
+
+```text
+Git Push
+↓
+Pipeline Triggered Automatically
+```
+
+The pipeline now performs:
 
 ```text
 GitHub
@@ -1245,6 +1356,8 @@ CodePipeline
 ↓
 CodeBuild
 ↓
+Retrieve Secret
+↓
 Docker Login
 ↓
 Docker Build
@@ -1252,10 +1365,14 @@ Docker Build
 Docker Push
 ```
 
-Confirm image appears in:
+Confirm the image appears in:
 
 ```text
 DockerHub
+↓
+Repositories
+↓
+vikkapoor25/arsenal-db
 ```
 
 ---
