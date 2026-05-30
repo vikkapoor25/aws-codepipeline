@@ -375,6 +375,22 @@ CodePipeline will monitor this repository for changes and use it as the starting
 
 # Step 2 - Create CodePipeline
 
+Create a new AWS CodePipeline that will orchestrate our planned CI/CD workflow:
+
+```text
+GitHub
+↓
+CodePipeline
+↓
+CodeBuild
+↓
+Docker Build
+↓
+Docker Registry
+↓
+Deployment
+```
+
 Navigate to:
 
 ```text
@@ -387,7 +403,7 @@ CodePipeline
 Create Pipeline
 ```
 
-Example:
+Example pipeline name:
 
 ```text
 aws-docker-build-and-push
@@ -402,6 +418,8 @@ Select:
 ```text
 Build custom pipeline
 ```
+
+This allows you to configure the source, build and deployment stages manually.
 
 ---
 
@@ -423,13 +441,15 @@ Pipeline 2
 Pipeline 3
 ```
 
-Only one execution runs at a time.
+Only one pipeline execution runs at a time.
 
 ---
 
 # Step 3 - Configure Source Stage
 
-Choose source provider:
+The source stage defines where CodePipeline will retrieve the application code from.
+
+For this project, the source provider is:
 
 ```text
 GitHub (via GitHub App)
@@ -439,23 +459,100 @@ GitHub (via GitHub App)
 
 ## Create GitHub Connection
 
-AWS will ask you to:
-
-- install GitHub App
-- authorise GitHub
-- choose repository
-- choose branch
-
-Example:
+In the connection section select:
 
 ```text
-Repository: goat-api
+Connect to GitHub
+```
+
+Then:
+
+```text
+Create New Connection
+```
+
+Example connection name:
+
+```text
+aws-github-service-connection
+```
+
+Click:
+
+```text
+Connect to GitHub
+```
+
+---
+
+## Install GitHub App
+
+AWS will redirect you to GitHub.
+
+Select:
+
+```text
+Install a New App
+```
+
+Then:
+
+- select your GitHub account
+- choose **Only Select Repositories**
+- select the repository:
+
+```text
+aws-codepipeline
+```
+
+Complete the installation.
+
+---
+
+## Complete Connection
+
+After GitHub redirects back to AWS:
+
+```text
+Click Connect
+```
+
+This establishes the connection between:
+
+```text
+AWS CodePipeline
+↓
+GitHub Account
+```
+
+allowing AWS to access the selected repository.
+
+---
+
+## Select Repository
+
+Choose:
+
+```text
+Repository Name: vikkapoor25/aws-codepipeline
+Default Branch: main
+```
+
+This tells CodePipeline:
+
+- which GitHub repository to monitor
+- which branch should trigger pipeline executions
+
+In this example:
+
+```text
+Repository: vikkapoor25/aws-codepipeline
 Branch: main
 ```
 
 ---
 
-## What Happens Now?
+## How it Works
 
 Every push to:
 
@@ -464,6 +561,40 @@ main
 ```
 
 can automatically trigger the pipeline.
+
+Example:
+
+```text
+Developer pushes code
+↓
+GitHub repository updated
+↓
+CodePipeline detects change
+↓
+Pipeline starts automatically
+```
+
+This repository now acts as the source stage for the remainder of the pipeline.
+
+**NOTE:** Even though we want to skip all the build, test, deploy stages for now, one of these has to be populated. I added `echo "aws-codepipeline" in the build stage so i can skip the other stages.
+
+---
+
+# Step 3.5 - Create Pipeline
+
+We will configure the actual build process later using a `buildspec.yml` file.
+
+For now, we want to skip the build, test and deploy stages. However, CodePipeline requires at least one stage to contain an action.
+
+To satisfy this requirement, I added:
+
+```bash
+echo "aws-codepipeline"
+```
+
+to the build stage.
+
+This allows the pipeline to execute successfully while we focus on configuring the GitHub source connection. The placeholder build action will be replaced later when we create the CodeBuild project and `buildspec.yml`.
 
 ---
 
