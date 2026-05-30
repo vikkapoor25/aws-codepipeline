@@ -950,7 +950,114 @@ Executes Commands
 
 ---
 
-# Step 8 - Create Basic buildspec.yml
+# Step 8 - Verify CodeBuild Integration Permissions
+
+After creating the CodeBuild project and linking it to the build action, verify that CodePipeline can successfully start the build.
+
+## Common Error: CodeBuild Start Permissions
+
+Error:
+
+```text
+is not authorized to perform:
+codebuild:StartBuild
+```
+
+Example:
+
+```text
+Error calling startBuild:
+
+User:
+AWSCodePipelineServiceRole-<region>-<pipeline-name>
+
+is not authorized to perform:
+
+codebuild:StartBuild
+
+on resource:
+
+arn:aws:codebuild:<region>:<account-id>:project/<project-name>
+```
+
+This means the CodePipeline service role does not have permission to start the CodeBuild project.
+
+---
+
+## Fix
+
+Navigate to:
+
+```text
+IAM
+↓
+Roles
+↓
+AWSCodePipelineServiceRole-<region>-<pipeline-name>
+↓
+Add Permissions
+↓
+Create Inline Policy
+↓
+JSON
+```
+
+Add the following policy:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "codebuild:StartBuild",
+    "codebuild:BatchGetBuilds"
+  ],
+  "Resource": "CodeBuild Project ARN"
+}
+```
+
+Give the policy a meaningful name, for example:
+
+```text
+aws-codepipeline-start-codebuild
+```
+
+Then create the policy.
+
+This policy grants CodePipeline permission to start the CodeBuild project and retrieve build status information.
+
+**NOTE:** The CodeBuild Project ARN can be found in:
+
+```text
+CodeBuild
+↓
+Build Projects
+↓
+<Project Name>
+```
+
+---
+
+## Retry Pipeline
+
+After creating the inline policy:
+
+```text
+CodePipeline
+↓
+Release Change
+```
+
+or:
+
+```text
+Retry Stage
+```
+
+The build stage should now be able to start the CodeBuild project successfully.
+
+---
+
+# Step 9 - Create Basic buildspec.yml
 
 We will create a simple `buildspec.yml` to verify that:
 
@@ -963,6 +1070,8 @@ CodeBuild
 ```
 
 is working correctly before introducing Docker.
+
+**NOTE:** If `buildspec.yml` is empty, CodeBuild will fail because it requires valid YAML instructions to execute.
 
 Start with a simple test.
 
@@ -993,7 +1102,7 @@ is working before introducing Docker.
 
 ---
 
-# Step 9 - Run Pipeline
+# Step 10 - Run Pipeline
 
 Run:
 
@@ -1011,7 +1120,7 @@ Confirm:
 
 ---
 
-# Step 10 - Create Docker Credentials Secret
+# Step 11 - Create Docker Credentials Secret
 
 Navigate to:
 
@@ -1046,7 +1155,7 @@ pipeline-docker-auth
 
 ---
 
-# Step 11 - Give CodeBuild Access To Secret
+# Step 12 - Give CodeBuild Access To Secret
 
 Find:
 
@@ -1072,7 +1181,7 @@ Add permission:
 
 ---
 
-# Step 12 - Login To DockerHub
+# Step 13 - Login To DockerHub
 
 Update buildspec:
 
@@ -1092,7 +1201,7 @@ phases:
 
 ---
 
-# Step 13 - Build Docker Image
+# Step 14 - Build Docker Image
 
 Add:
 
@@ -1112,7 +1221,7 @@ Docker Image
 
 ---
 
-# Step 14 - Push Docker Image
+# Step 15 - Push Docker Image
 
 Add:
 
@@ -1125,7 +1234,7 @@ post_build:
 
 ---
 
-# Step 15 - Run Pipeline Again
+# Step 16 - Run Pipeline Again
 
 Pipeline now performs:
 
