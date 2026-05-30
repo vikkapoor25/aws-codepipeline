@@ -1377,11 +1377,11 @@ vikkapoor25/arsenal-db
 
 ---
 
-# 3. buildspec.yml Reference
+# 3. buildspec.yml Cheat Sheet
 
 ## What is buildspec.yml?
 
-A `buildspec.yml` file tells CodeBuild exactly what commands to run.
+A `buildspec.yml` file tells AWS CodeBuild exactly what commands to execute.
 
 Think of it as:
 
@@ -1389,7 +1389,19 @@ Think of it as:
 Build Instructions
 ```
 
-for AWS CodeBuild.
+for CodeBuild.
+
+When CodePipeline starts CodeBuild:
+
+```text
+CodePipeline
+↓
+CodeBuild
+↓
+Reads buildspec.yml
+↓
+Executes commands
+```
 
 ---
 
@@ -1397,6 +1409,8 @@ for AWS CodeBuild.
 
 ```yaml
 version: 0.2
+
+env:
 
 phases:
   install:
@@ -1413,11 +1427,6 @@ phases:
 
 artifacts:
   files:
-    - '**/*'
-
-env:
-  variables:
-    MY_VAR: "value"
 ```
 
 ---
@@ -1432,21 +1441,42 @@ Example:
 version: 0.2
 ```
 
-Specifies buildspec format version.
+Specifies the buildspec file format version.
+
+---
+
+## env
+
+Used to define environment variables and retrieve secrets.
+
+Example:
+
+```yaml
+env:
+  variables:
+    APP_ENV: production
+```
+
+Secrets Manager example:
+
+```yaml
+env:
+  secrets-manager:
+    SECRET_USERNAME: "pipeline-docker-auth:username"
+    SECRET_PASSWORD: "pipeline-docker-auth:password"
+```
 
 ---
 
 ## install
 
-Optional.
-
 Runs first.
 
 Common uses:
 
-- npm install
-- install tools
-- setup environment
+* install dependencies
+* install tools
+* configure environment
 
 Example:
 
@@ -1460,16 +1490,14 @@ install:
 
 ## pre_build
 
-Optional.
-
-Runs before build.
+Runs before the main build.
 
 Common uses:
 
-- Docker login
-- ECR login
-- linting
-- environment setup
+* Docker login
+* ECR login
+* linting
+* setup tasks
 
 Example:
 
@@ -1485,13 +1513,11 @@ pre_build:
 
 Main build phase.
 
-Usually required.
-
 Common uses:
 
-- tests
-- application build
-- Docker build
+* run tests
+* build applications
+* build Docker images
 
 Example:
 
@@ -1505,13 +1531,13 @@ build:
 
 ## post_build
 
-Runs after build completes.
+Runs after the build completes.
 
 Common uses:
 
-- Docker push
-- deployment preparation
-- notifications
+* Docker push
+* deployment preparation
+* notifications
 
 Example:
 
@@ -1525,299 +1551,422 @@ post_build:
 
 ## artifacts
 
-Defines files to preserve after build.
+Defines files to preserve after the build.
 
 Example:
 
 ```yaml
 artifacts:
   files:
-    - '**/*'
+    - Dockerfile
 ```
 
 Useful for:
 
-- deployment packages
-- reports
-- compiled applications
+* deployment packages
+* reports
+* compiled applications
 
 ---
 
-## env
-
-Defines environment variables.
-
-Example:
+## Final Example
 
 ```yaml
-env:
-  variables:
-    NODE_ENV: production
-```
+version: 0.2
 
-For secrets use:
-
-```yaml
 env:
   secrets-manager:
-```
+    SECRET_USERNAME: "pipeline-docker-auth:username"
+    SECRET_PASSWORD: "pipeline-docker-auth:password"
 
-instead.
+phases:
+  pre_build:
+    commands:
+      - echo "$SECRET_PASSWORD" | docker login -u "$SECRET_USERNAME" --password-stdin
+
+  build:
+    commands:
+      - docker build -t vikkapoor25/arsenal-db:latest .
+
+  post_build:
+    commands:
+      - docker push vikkapoor25/arsenal-db:latest
+
+artifacts:
+  files:
+    - Dockerfile
+```
 
 ---
 
-# 4. IAM & Permissions
+# 4. Troubleshooting Guide
 
-## Why Permissions Matter
+## GitHub Connection Permissions
 
-AWS services do NOT automatically trust each other.
-
-Example:
+### Error
 
 ```text
-CodePipeline
-↓
-CodeBuild
+Unable to use Connection...
+The provided role does not have sufficient permissions.
 ```
 
-CodePipeline must be granted permission to start CodeBuild.
+### Meaning
+
+CodePipeline cannot use the GitHub connection.
+
+### Fix
+
+Grant:
+
+```json
+codeconnections:UseConnection
+```
+
+to the CodePipeline service role.
 
 ---
 
-## CodePipeline → CodeBuild
+## CloudWatch Logging Permissions
 
-Required permissions:
+### Error
+
+```text
+Service role does not have permissions to create Amazon CloudWatch log streams.
+```
+
+### Meaning
+
+CodePipeline cannot create or write CloudWatch logs.
+
+### Fix
+
+Grant:
+
+```json
+logs:CreateLogGroup
+logs:CreateLogStream
+logs:PutLogEvents
+```
+
+to the CodePipeline service role.
+
+---
+
+## CodeBuild Start Permissions
+
+### Error
+
+```text
+is not authorized to perform:
+codebuild:StartBuild
+```
+
+### Meaning
+
+CodePipeline cannot start the CodeBuild project.
+
+### Fix
+
+Grant:
 
 ```json
 codebuild:StartBuild
 codebuild:BatchGetBuilds
 ```
 
-Purpose:
+to the CodePipeline service role.
+
+---
+
+## Empty buildspec.yml
+
+### Error
 
 ```text
-Start builds
-Check build status
+YAML_FILE_ERROR
+```
+
+or
+
+```text
+wrong number of container tags, expected 1
+```
+
+### Meaning
+
+The `buildspec.yml` file is empty or contains invalid YAML.
+
+### Fix
+
+Ensure `buildspec.yml` contains valid YAML instructions.
+
+Example:
+
+```yaml
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo "Hello from CodeBuild"
 ```
 
 ---
 
-## CodeBuild → Secrets Manager
+## Secrets Manager Permissions
 
-Required permission:
+### Error
+
+```text
+AccessDeniedException
+```
+
+when retrieving secrets.
+
+### Meaning
+
+CodeBuild cannot read values from Secrets Manager.
+
+### Fix
+
+Grant:
 
 ```json
 secretsmanager:GetSecretValue
 ```
 
-Purpose:
+to the CodeBuild service role.
+
+---
+
+## Docker Login Failed
+
+### Error
 
 ```text
-Read Docker credentials
+unauthorized: incorrect username or password
+```
+
+### Meaning
+
+DockerHub rejected the supplied credentials.
+
+### Fix
+
+Verify:
+
+```text
+Secret Name:
+pipeline-docker-auth
+
+Keys:
+username
+password
+```
+
+Confirm:
+
+```text
+username = DockerHub username
+password = DockerHub password or access token
 ```
 
 ---
 
-## Common Error
+## Duplicate Policy Names
 
-Example:
-
-```text
-User is not authorized to perform:
-codebuild:StartBuild
-```
-
-Meaning:
+### Error
 
 ```text
-CodePipeline lacks permission to start CodeBuild
+A policy called ... already exists.
+Duplicate names are not allowed.
 ```
+
+### Meaning
+
+A previous lab or pipeline left behind IAM resources.
+
+### Fix
+
+Navigate to:
+
+```text
+IAM
+↓
+Policies
+```
+
+Check whether the policy is attached to any roles.
+
+If not attached:
+
+```text
+Delete Policy
+```
+
+and recreate the resource.
 
 ---
 
-# 5. AWS Secrets Manager
+## Useful Troubleshooting Process
 
-## What is Secrets Manager?
-
-Secrets Manager securely stores sensitive information.
-
-Examples:
-
-- Docker passwords
-- API keys
-- database credentials
-- tokens
-
----
-
-## Why Not Hardcode Secrets?
-
-Avoid storing secrets in:
+When a pipeline fails:
 
 ```text
-GitHub
-Dockerfile
-buildspec.yml
-Terraform files
-```
-
-because:
-
-- source control is visible
-- credentials can leak
-- passwords become difficult to rotate
-
----
-
-## Accessing Secrets
-
-Store:
-
-```text
-SECRET_USERNAME
-SECRET_PASSWORD
-```
-
-in Secrets Manager.
-
-Reference them in buildspec:
-
-```yaml
-env:
-  secrets-manager:
-    SECRET_USERNAME: pipeline-docker-auth:SECRET_USERNAME
-    SECRET_PASSWORD: pipeline-docker-auth:SECRET_PASSWORD
+CodePipeline
+↓
+Failed Stage
+↓
+View Details
+↓
+Open CloudWatch Logs
+↓
+Read Error Message
+↓
+Identify Missing Permission / Configuration
+↓
+Fix
+↓
+Retry Stage
 ```
 
 ---
 
-# 6. Deployment Options
+# 5. Next Steps
 
-After the image is built and pushed, it can be deployed.
-
----
-
-## DockerHub
-
-Stores Docker images.
-
----
-
-## Amazon ECR
-
-AWS-managed Docker registry.
-
-Alternative to DockerHub.
-
----
-
-## EC2
-
-Run containers manually on EC2 servers.
-
-Good for learning.
-
----
-
-## ECS Fargate
-
-AWS managed container hosting.
-
-Good for production.
-
----
-
-## CloudFormation
-
-AWS Infrastructure as Code.
-
----
-
-## Terraform
-
-Infrastructure as Code.
-
-Can provision:
-
-- EC2
-- ECS
-- databases
-- networking
-- load balancers
-
----
-
-# 7. Putting Everything Together
+This pipeline currently performs:
 
 ```text
-Developer pushes code
-↓
-GitHub
-↓
-CodePipeline triggered
-↓
-CodeBuild starts
-↓
-Secrets retrieved
-↓
-Docker login
-↓
-Docker build
-↓
-Docker push
-↓
-Deploy
-```
-
----
-
-# Example End Goal
-
-```text
-Developer pushes code
-↓
 GitHub
 ↓
 CodePipeline
 ↓
 CodeBuild
 ↓
-Docker image built
+Docker Login
 ↓
-Docker image pushed
+Docker Build
 ↓
-Terraform-managed infrastructure updated
-↓
-Application deployed
+Docker Push
 ```
 
 ---
 
-# Skills To Practise
+## Deploy and Run Containers
 
-Good follow-on projects:
+The current pipeline builds and stores a Docker image but does not run a container.
 
-- Dockerise an API
-- Dockerise API + database
-- Build CodePipeline
-- Build CodeBuild project
-- Use Secrets Manager
-- Push Docker images automatically
-- Deploy to EC2
-- Deploy to ECS
-- Add automated testing stage
-- Integrate Terraform deployments
+Current workflow:
 
+```text
+GitHub
+↓
+CodePipeline
+↓
+CodeBuild
+↓
+Docker Push
+↓
+DockerHub
+```
 
+To run the application, a deployment stage must be added.
 
+Example:
 
+```text
+GitHub
+↓
+CodePipeline
+↓
+CodeBuild
+↓
+Docker Push
+↓
+EC2 / ECS
+↓
+docker run
+↓
+Container Running
+```
 
+A Docker image is simply a template.
 
+The application only runs when a container is created from that image.
 
+---
 
+## Push to Amazon ECR
 
+Replace DockerHub with:
 
+```text
+Amazon Elastic Container Registry (ECR)
+```
 
+AWS-native Docker image storage.
 
+---
 
+## Deploy to EC2
 
+Automatically pull the latest image and start containers on EC2.
+
+---
+
+## Deploy to ECS
+
+Deploy containers using:
+
+```text
+Amazon ECS Fargate
+```
+
+for a fully managed container platform.
+
+---
+
+## Add Automated Testing
+
+Before building Docker images:
+
+```text
+Install Dependencies
+↓
+Run Tests
+↓
+Build Docker Image
+```
+
+---
+
+## Deploy with Terraform
+
+Provision infrastructure automatically:
+
+```text
+Terraform
+↓
+VPC
+↓
+EC2 / ECS
+↓
+Databases
+↓
+Networking
+```
+
+---
+
+## Skills To Practise
+
+* Dockerise a Node.js API
+* Dockerise an API and PostgreSQL database
+* Push Docker images to DockerHub
+* Push Docker images to ECR
+* Deploy containers to EC2
+* Deploy containers to ECS
+* Use Secrets Manager
+* Build Terraform infrastructure
+* Add automated testing stages
+* Build a full CI/CD pipeline
